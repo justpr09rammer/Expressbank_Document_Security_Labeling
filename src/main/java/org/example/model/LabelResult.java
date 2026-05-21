@@ -4,9 +4,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Holds the result of a labeling operation for one document.
- */
 public class LabelResult {
 
     public enum Mode { MANUAL, AUTO }

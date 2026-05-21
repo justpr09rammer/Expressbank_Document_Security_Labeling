@@ -82,7 +82,7 @@ public class RulesManager {
         ));
         rules.add(new LabelRule(
             "Personal Identifiable Info",
-            "(?i)\\b(date of birth|social security|passport number|national id|driver.?s? license|medical record)\\b",
+            "(?i)\\b(date of birth|social security|passport number| password |national id|driver.?s? license|medical record)\\b",
             SecurityLabel.CONFIDENTIAL,
             "Documents containing personal identifiable information (PII)"
         ));
