@@ -10,10 +10,6 @@ import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 
-/**
- * Manages the set of regex-based labeling rules.
- * Rules are persisted to a JSON file in the user's home directory.
- */
 public class RulesManager {
 
     private static final String RULES_FILE = System.getProperty("user.home")
@@ -27,11 +23,6 @@ public class RulesManager {
         this.rules  = new ArrayList<>();
     }
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────
-
-    /**
-     * Load rules from disk. Falls back to built-in defaults if no file exists.
-     */
     public void load() {
         Path path = Paths.get(RULES_FILE);
         if (Files.exists(path)) {
@@ -151,7 +142,6 @@ public class RulesManager {
         System.out.println("[RulesManager] Loaded " + rules.size() + " default rules");
     }
 
-    // ── CRUD operations ───────────────────────────────────────────────────
 
     public List<LabelRule> getRules() {
         return Collections.unmodifiableList(rules);
