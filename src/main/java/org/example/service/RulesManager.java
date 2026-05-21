@@ -53,95 +53,189 @@ public class RulesManager {
     private void loadDefaults() {
         rules.clear();
 
-        // ── RESTRICTED rules ─────────────────────────────────────────────
+        // ─────────────────────────────────────────────────────────────
+        // RESTRICTED
+        // Highly sensitive / critical information
+        // ─────────────────────────────────────────────────────────────
+
         rules.add(new LabelRule(
-            "Trade Secrets",
-            "(?i)\\b(trade secret|proprietary formula|classified|top secret|eyes only)\\b",
-            SecurityLabel.RESTRICTED,
-            "Documents referencing classified or trade-secret content"
-        ));
-        rules.add(new LabelRule(
-            "Critical Infrastructure",
-            "(?i)\\b(critical infrastructure|nuclear|weapons|explosive|classified project)\\b",
-            SecurityLabel.RESTRICTED,
-            "References to critical infrastructure or classified projects"
-        ));
-        rules.add(new LabelRule(
-            "Cryptographic Keys",
-            "(?i)(-----BEGIN (RSA|EC|PGP|OPENSSH) (PRIVATE|PUBLIC) KEY-----|api.?key\\s*[:=]\\s*['\"]?[A-Za-z0-9+/]{20,})",
-            SecurityLabel.RESTRICTED,
-            "Documents containing cryptographic keys or API secrets"
+                "Private Keys",
+                "(?i)(-----BEGIN (RSA|DSA|EC|OPENSSH|PGP) PRIVATE KEY-----)",
+                SecurityLabel.RESTRICTED,
+                "Detected cryptographic private keys"
         ));
 
-        // ── CONFIDENTIAL rules ────────────────────────────────────────────
         rules.add(new LabelRule(
-            "Confidential Marker",
-            "(?i)\\b(confidential|strictly confidential|private and confidential|do not distribute)\\b",
-            SecurityLabel.CONFIDENTIAL,
-            "Explicit 'confidential' markers in text"
-        ));
-        rules.add(new LabelRule(
-            "Personal Identifiable Info",
-            "(?i)\\b(date of birth|social security|passport number| password |national id|driver.?s? license|medical record)\\b",
-            SecurityLabel.CONFIDENTIAL,
-            "Documents containing personal identifiable information (PII)"
-        ));
-        rules.add(new LabelRule(
-            "Financial Records",
-            "(?i)\\b(financial record|bank account|credit card|iban|swift code|salary|payroll|tax return)\\b",
-            SecurityLabel.CONFIDENTIAL,
-            "Documents containing financial records or account information"
-        ));
-        rules.add(new LabelRule(
-            "Legal / Contract",
-            "(?i)\\b(non.?disclosure agreement|nda|attorney.?client|privileged|legal advice|litigation)\\b",
-            SecurityLabel.CONFIDENTIAL,
-            "Legal documents, NDAs, or privileged communications"
-        ));
-        rules.add(new LabelRule(
-            "Secret / Sensitive Keyword",
-            "(?i)\\b(secret|sensitive|restricted access|not for distribution)\\b",
-            SecurityLabel.CONFIDENTIAL,
-            "General sensitive-content keywords"
+                "API Keys / Tokens",
+                "(?i)\\b(api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token)\\b\\s*[:=]\\s*['\"]?[A-Za-z0-9\\-_]{16,}",
+                SecurityLabel.RESTRICTED,
+                "Detected API keys or authentication tokens"
         ));
 
-        // ── INTERNAL ONLY rules ───────────────────────────────────────────
         rules.add(new LabelRule(
-            "Internal Use",
-            "(?i)\\b(internal use only|internal only|for internal use|employees only|staff only)\\b",
-            SecurityLabel.INTERNAL_ONLY,
-            "Explicit 'internal use only' markers"
-        ));
-        rules.add(new LabelRule(
-            "HR / Employee",
-            "(?i)\\b(performance review|employee handbook|org chart|headcount|onboarding|offboarding)\\b",
-            SecurityLabel.INTERNAL_ONLY,
-            "HR and employee-related documents"
-        ));
-        rules.add(new LabelRule(
-            "Internal Meeting",
-            "(?i)\\b(meeting minutes|action items|agenda|internal memo|board meeting|quarterly review)\\b",
-            SecurityLabel.INTERNAL_ONLY,
-            "Internal meetings, memos, and agendas"
+                "AWS Credentials",
+                "(?i)(AKIA[0-9A-Z]{16}|aws_secret_access_key)",
+                SecurityLabel.RESTRICTED,
+                "Detected AWS credentials"
         ));
 
-        // ── PUBLIC rules ──────────────────────────────────────────────────
         rules.add(new LabelRule(
-            "Press Release",
-            "(?i)\\b(press release|for immediate release|media release|public announcement)\\b",
-            SecurityLabel.PUBLIC,
-            "Press releases and public announcements"
+                "Database Connection String",
+                "(?i)(jdbc:mysql://|jdbc:postgresql://|mongodb://|Server=.*;Database=.*;User Id=.*;Password=.*)",
+                SecurityLabel.RESTRICTED,
+                "Detected database connection credentials"
         ));
+
         rules.add(new LabelRule(
-            "Marketing / Promotional",
-            "(?i)\\b(marketing material|promotional|advertisement|brochure|product launch|public website)\\b",
-            SecurityLabel.PUBLIC,
-            "Marketing and promotional content"
+                "Passwords",
+                "(?i)\\b(password|passwd|pwd)\\b\\s*[:=]\\s*['\"]?.{4,}",
+                SecurityLabel.RESTRICTED,
+                "Detected passwords in plain text"
+        ));
+
+        // ─────────────────────────────────────────────────────────────
+        // CONFIDENTIAL
+        // Personal, financial, or sensitive company data
+        // ─────────────────────────────────────────────────────────────
+
+        rules.add(new LabelRule(
+                "Credit Card Numbers",
+                "\\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected possible credit card numbers"
+        ));
+
+        rules.add(new LabelRule(
+                "CVV Codes",
+                "\\bCVV\\s*[:=]?\\s*[0-9]{3,4}\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected card CVV codes"
+        ));
+
+        rules.add(new LabelRule(
+                "IBAN Numbers",
+                "\\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected IBAN bank account numbers"
+        ));
+
+        rules.add(new LabelRule(
+                "SWIFT Codes",
+                "\\b[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected SWIFT/BIC banking codes"
+        ));
+
+        rules.add(new LabelRule(
+                "Social Security Numbers",
+                "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected social security numbers"
+        ));
+
+        rules.add(new LabelRule(
+                "Phone Numbers",
+                "\\b(\\+\\d{1,3}[- ]?)?\\(?\\d{3}\\)?[- ]?\\d{3}[- ]?\\d{4}\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected phone numbers"
+        ));
+
+        rules.add(new LabelRule(
+                "Email Addresses",
+                "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected email addresses"
+        ));
+
+        rules.add(new LabelRule(
+                "Passport Numbers",
+                "(?i)\\b(passport number|passport no|passport)\\b\\s*[:=]?\\s*[A-Z0-9]{6,9}",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected passport information"
+        ));
+
+        rules.add(new LabelRule(
+                "National ID Numbers",
+                "(?i)\\b(national id|identity number|ssn|tin)\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected government-issued identification"
+        ));
+
+        rules.add(new LabelRule(
+                "Salary / Payroll",
+                "(?i)\\b(salary|payroll|bonus|compensation|tax return)\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected salary or payroll information"
+        ));
+
+        rules.add(new LabelRule(
+                "Confidential Keywords",
+                "(?i)\\b(confidential|strictly confidential|private and confidential|do not distribute|sensitive information)\\b",
+                SecurityLabel.CONFIDENTIAL,
+                "Detected confidential document markers"
+        ));
+
+        // ─────────────────────────────────────────────────────────────
+        // INTERNAL ONLY
+        // Internal business information
+        // ─────────────────────────────────────────────────────────────
+
+        rules.add(new LabelRule(
+                "Internal Use",
+                "(?i)\\b(internal use only|internal only|employees only|staff only)\\b",
+                SecurityLabel.INTERNAL_ONLY,
+                "Detected internal-use-only markers"
+        ));
+
+        rules.add(new LabelRule(
+                "Meeting Documents",
+                "(?i)\\b(meeting minutes|agenda|action items|internal memo|quarterly review)\\b",
+                SecurityLabel.INTERNAL_ONLY,
+                "Detected internal meeting documents"
+        ));
+
+        rules.add(new LabelRule(
+                "HR Documents",
+                "(?i)\\b(employee handbook|performance review|onboarding|offboarding|org chart)\\b",
+                SecurityLabel.INTERNAL_ONLY,
+                "Detected HR-related documents"
+        ));
+
+        rules.add(new LabelRule(
+                "Source Code References",
+                "(?i)\\b(github|gitlab|repository|source code|internal repo)\\b",
+                SecurityLabel.INTERNAL_ONLY,
+                "Detected software development references"
+        ));
+
+        // ─────────────────────────────────────────────────────────────
+        // PUBLIC
+        // Publicly shareable content
+        // ─────────────────────────────────────────────────────────────
+
+        rules.add(new LabelRule(
+                "Press Release",
+                "(?i)\\b(press release|for immediate release|media release)\\b",
+                SecurityLabel.PUBLIC,
+                "Detected press release content"
+        ));
+
+        rules.add(new LabelRule(
+                "Marketing Content",
+                "(?i)\\b(marketing material|brochure|advertisement|product launch|public website)\\b",
+                SecurityLabel.PUBLIC,
+                "Detected marketing or promotional material"
+        ));
+
+        rules.add(new LabelRule(
+                "Public Announcement",
+                "(?i)\\b(public announcement|newsletter|public information)\\b",
+                SecurityLabel.PUBLIC,
+                "Detected public-facing content"
         ));
 
         System.out.println("[RulesManager] Loaded " + rules.size() + " default rules");
     }
-
 
     public List<LabelRule> getRules() {
         return Collections.unmodifiableList(rules);
