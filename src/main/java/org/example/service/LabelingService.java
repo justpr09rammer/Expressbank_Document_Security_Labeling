@@ -1,49 +1,59 @@
 package org.example.service;
 
-
 import org.example.model.LabelResult;
 import org.example.model.LabelRule;
 import org.example.model.SecurityLabel;
 
 import java.io.IOException;
-import java.util.*;
-import java.util.regex.*;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Core labeling service. Supports both manual and automatic (regex-based) labeling.
+ * Core labeling service.
+ * Supports both manual and automatic (regex-based) labeling.
  */
 public class LabelingService {
 
     private final DocumentParser parser;
-    private final RulesManager   rulesManager;
-
-    /** How many context characters to capture around a match */
-    private static final int SNIPPET_CONTEXT = 60;
+    private final RulesManager rulesManager;
+    private final RuleBasedClassifier classifier;
 
     public LabelingService(DocumentParser parser, RulesManager rulesManager) {
-        this.parser       = parser;
+        this.parser = parser;
         this.rulesManager = rulesManager;
+        this.classifier = new RuleBasedClassifier();
     }
 
     // ── Manual Labeling ───────────────────────────────────────────────────
 
     /**
-     * Apply a user-chosen label to a document without any content analysis.
+     * Apply a user-selected label without content analysis.
      */
-    public LabelResult applyManualLabel(String filePath, SecurityLabel chosenLabel) {
+    public LabelResult applyManualLabel(String filePath,
+                                        SecurityLabel chosenLabel) {
+
         String fileName = extractFileName(filePath);
 
-        LabelResult result = new LabelResult(filePath, fileName, chosenLabel, LabelResult.Mode.MANUAL);
-        result.setConfidenceScore(1.0);   // manual = 100% confidence by definition
+        LabelResult result =
+                new LabelResult(
+                        filePath,
+                        fileName,
+                        chosenLabel,
+                        LabelResult.Mode.MANUAL);
 
-        // Still parse to get word count / file size metadata
+        result.setConfidenceScore(1.0);
+
         try {
             DocumentParser.ParseResult parsed = parser.parse(filePath);
+
             result.setWordCount(parsed.wordCount());
             result.setFileSizeBytes(parsed.fileSizeBytes());
             result.setFileType(parsed.fileType());
+
         } catch (IOException | UnsupportedOperationException e) {
-            // Non-fatal: metadata unavailable but label is still applied
+            // Metadata unavailable, label is still valid
             result.setWordCount(0);
         }
 
@@ -53,91 +63,104 @@ public class LabelingService {
     // ── Automatic Labeling ────────────────────────────────────────────────
 
     /**
-     * Analyse document text with regex rules and assign the highest matching label.
-     *
-     * @param filePath path to the document
-     * @return LabelResult with matched rules, snippets, and confidence score
-     * @throws IOException if the file cannot be read
+     * Analyse document text using enabled rules and assign
+     * the highest-confidence security label.
      */
     public LabelResult applyAutoLabel(String filePath) throws IOException {
+
         String fileName = extractFileName(filePath);
 
         DocumentParser.ParseResult parsed = parser.parse(filePath);
         String text = parsed.text();
 
-        LabelResult result = new LabelResult(filePath, fileName, null, LabelResult.Mode.AUTO);
+        LabelResult result =
+                new LabelResult(
+                        filePath,
+                        fileName,
+                        null,
+                        LabelResult.Mode.AUTO);
+
         result.setWordCount(parsed.wordCount());
         result.setFileSizeBytes(parsed.fileSizeBytes());
         result.setFileType(parsed.fileType());
 
-        // Maps label → count of rules that matched it
-        Map<SecurityLabel, Integer> labelHits   = new EnumMap<>(SecurityLabel.class);
-        Map<SecurityLabel, Integer> labelWeight  = new EnumMap<>(SecurityLabel.class);
-
-        List<LabelRule> enabledRules = rulesManager.getEnabledRules();
         rulesManager.sortByPriority();
+        List<LabelRule> enabledRules = rulesManager.getEnabledRules();
 
-        for (LabelRule rule : enabledRules) {
-            try {
-                Pattern p = Pattern.compile(rule.getPattern(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-                Matcher m = p.matcher(text);
+        RuleBasedClassifier.ClassificationResult classification =
+                classifier.classify(enabledRules, text);
 
-                if (m.find()) {
-                    // Record the rule match
-                    result.addMatchedRule(rule.getName() + " [" + rule.getLabel().getDisplayName() + "]");
+        populateMatchDetails(result, classification);
 
-                    // Capture a context snippet
-                    int start   = Math.max(0, m.start() - SNIPPET_CONTEXT);
-                    int end     = Math.min(text.length(), m.end() + SNIPPET_CONTEXT);
-                    String snip = "…" + text.substring(start, end).replace("\n", " ").trim() + "…";
-                    result.addMatchedSnippet("[" + rule.getName() + "] " + snip);
-
-                    // Accumulate hits and weighted severity
-                    labelHits.merge(rule.getLabel(), 1, Integer::sum);
-                    labelWeight.merge(rule.getLabel(), rule.getPriority(), Integer::sum);
-                }
-            } catch (PatternSyntaxException e) {
-                System.err.println("[LabelingService] Skipping invalid rule pattern '"
-                    + rule.getPattern() + "': " + e.getMessage());
-            }
-        }
-
-        // Pick label by highest total weight (severity × hits)
-        SecurityLabel assignedLabel = null;
-        int           maxWeight     = 0;
-
-        for (Map.Entry<SecurityLabel, Integer> entry : labelWeight.entrySet()) {
-            if (entry.getValue() > maxWeight) {
-                maxWeight     = entry.getValue();
-                assignedLabel = entry.getKey();
-            }
-        }
-
-        // Default to INTERNAL_ONLY if nothing matched but file has content
-        if (assignedLabel == null && !text.isBlank()) {
-            assignedLabel = SecurityLabel.INTERNAL_ONLY;
-        } else if (assignedLabel == null) {
-            assignedLabel = SecurityLabel.PUBLIC;
-        }
-
-        result.setLabel(assignedLabel);
-        result.setConfidenceScore(computeConfidence(labelHits, assignedLabel, enabledRules.size()));
+        result.setLabel(classification.assignedLabel());
+        result.setConfidenceScore(classification.confidenceScore());
 
         return result;
+    }
+
+    // ── Regex Testing Utilities ───────────────────────────────────────────
+
+    /**
+     * Test a raw regex pattern against text.
+     */
+    public RuleBasedClassifier.PatternTestResult testPattern(
+            String pattern,
+            String text) {
+
+        return classifier.testPattern(pattern, text);
+    }
+
+    /**
+     * Test a saved rule against text.
+     */
+    public RuleBasedClassifier.PatternTestResult testRule(
+            String ruleId,
+            String text) {
+
+        return rulesManager.getRules()
+                .stream()
+                .filter(rule -> rule.getId().equals(ruleId))
+                .findFirst()
+                .map(rule -> classifier.testRule(rule, text))
+                .orElse(
+                        new RuleBasedClassifier.PatternTestResult(
+                                null,
+                                false,
+                                false,
+                                List.of(),
+                                "Rule not found: " + ruleId
+                        )
+                );
+    }
+
+    /**
+     * Classify arbitrary text without loading a file.
+     */
+    public RuleBasedClassifier.ClassificationResult classifyText(String text) {
+
+        rulesManager.sortByPriority();
+
+        return classifier.classify(
+                rulesManager.getEnabledRules(),
+                text
+        );
     }
 
     // ── Batch Processing ──────────────────────────────────────────────────
 
     /**
-     * Auto-label multiple files. Returns results in the same order as the input list.
-     * Individual failures are recorded as error results (not thrown).
+     * Auto-label multiple files.
+     * Results are returned in the same order as input.
      */
-    public List<LabelResult> batchAutoLabel(List<String> filePaths,
-                                             BatchProgressCallback callback) {
+    public List<LabelResult> batchAutoLabel(
+            List<String> filePaths,
+            BatchProgressCallback callback) {
+
         List<LabelResult> results = new ArrayList<>();
         int total = filePaths.size();
 
         for (int i = 0; i < total; i++) {
+
             String path = filePaths.get(i);
             String name = extractFileName(path);
 
@@ -147,48 +170,110 @@ public class LabelingService {
 
             try {
                 results.add(applyAutoLabel(path));
+
             } catch (Exception e) {
-                LabelResult err = new LabelResult(path, name, SecurityLabel.RESTRICTED, LabelResult.Mode.AUTO);
-                err.setErrorMessage("Parse error: " + e.getMessage());
-                results.add(err);
+
+                LabelResult errorResult =
+                        new LabelResult(
+                                path,
+                                name,
+                                SecurityLabel.RESTRICTED,
+                                LabelResult.Mode.AUTO);
+
+                errorResult.setErrorMessage(
+                        "Parse error: " + e.getMessage());
+
+                results.add(errorResult);
             }
         }
+
         return results;
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
+    // ── Internal Helpers ──────────────────────────────────────────────────
 
     /**
-     * Confidence = ratio of (rules that matched the assigned label) to (total enabled rules),
-     * weighted by label severity. Capped at 0.99 for auto mode.
+     * Maps classifier match information into LabelResult.
      */
-    private double computeConfidence(Map<SecurityLabel, Integer> hits,
-                                     SecurityLabel assigned,
-                                     int totalRules) {
-        if (totalRules == 0 || assigned == null) return 0.5;
+    private void populateMatchDetails(
+            LabelResult result,
+            RuleBasedClassifier.ClassificationResult classification) {
+
+        for (RuleBasedClassifier.RuleMatchResult matchResult
+                : classification.ruleMatches()) {
+
+            LabelRule rule = matchResult.rule();
+
+            result.addMatchedRule(
+                    rule.getName()
+                            + " ["
+                            + rule.getLabel().getDisplayName()
+                            + "]");
+
+            if (!matchResult.matches().isEmpty()) {
+
+                result.addMatchedSnippet(
+                        "["
+                                + rule.getName()
+                                + "] "
+                                + matchResult.matches()
+                                .get(0)
+                                .snippet());
+            }
+        }
+    }
+
+    /**
+     * Legacy confidence calculation retained for compatibility.
+     * Confidence is now calculated by RuleBasedClassifier.
+     */
+    @SuppressWarnings("unused")
+    private double computeConfidence(
+            Map<SecurityLabel, Integer> hits,
+            SecurityLabel assigned,
+            int totalRules) {
+
+        if (totalRules == 0 || assigned == null) {
+            return 0.5;
+        }
 
         int matchCount = hits.getOrDefault(assigned, 0);
-        int totalHits  = hits.values().stream().mapToInt(Integer::intValue).sum();
+        int totalHits =
+                hits.values()
+                        .stream()
+                        .mapToInt(Integer::intValue)
+                        .sum();
 
-        if (totalHits == 0) return 0.4;   // default label, no matches
+        if (totalHits == 0) {
+            return 0.4;
+        }
 
-        // Base score: what fraction of all hits belonged to the winning label
-        double base = (double) matchCount / totalHits;
+        double base =
+                (double) matchCount / totalHits;
 
-        // Boost by severity: restricted matches get extra confidence
-        double severityBoost = assigned.getSeverity() * 0.03;
+        double severityBoost =
+                assigned.getSeverity() * 0.03;
 
-        return Math.min(0.99, base + severityBoost);
+        return Math.min(
+                0.99,
+                base + severityBoost
+        );
     }
 
     private String extractFileName(String filePath) {
-        return java.nio.file.Paths.get(filePath).getFileName().toString();
+        return Paths.get(filePath)
+                .getFileName()
+                .toString();
     }
 
     // ── Functional Interface ──────────────────────────────────────────────
 
     @FunctionalInterface
     public interface BatchProgressCallback {
-        void onProgress(int current, int total, String currentFile);
+        void onProgress(
+                int current,
+                int total,
+                String currentFile
+        );
     }
 }
